@@ -1,13 +1,14 @@
+import os
 import numpy as np
 
 from isaacsim import SimulationApp
-
-# GUI 켜기/끄기
 simulation_app = SimulationApp({"headless": False})
 
 import isaacsim.robot_motion.motion_generation as mg
 from isaacsim.core.api import World
+from isaacsim.core.utils.stage import add_reference_to_stage
 from isaacsim.core.prims import SingleArticulation
+from isaacsim.core.utils.types import ArticulationAction
 from isaacsim.core.utils.rotations import euler_angles_to_quat
 from isaacsim.robot.manipulators.examples.franka import Franka
 
@@ -37,6 +38,15 @@ class MoveFrankaStandalone:
         self._franka = None
         self.cspace_controller = None
 
+
+        # ====== 여기만 당신 환경에 맞게 수정 ======
+        self.MAP_USD_PATH = "/home/rokey/Documents/project/test_world_origin.usd"  # 기존 맵 USD 경로
+        self.MAP_PRIM_PATH = "/World/Map"                # 맵이 참조될 prim 경로
+        self.FRANKA_PRIM_PATH = "/World/Fancy_Franka"    # 로봇 prim 경로 (맵과 겹치지 않게)
+        # 맵 위에 로봇을 올릴 위치(미터 단위). 맵 원점/스케일에 맞춰 조정
+        self.FRANKA_POSITION = np.array([0.0, 1.0, 0.0])
+        # ======================================
+
         self._goal_points = [
             np.array([0.5, 0.5, 0.5]),
             np.array([0.0, -0.3, 0.1]),
@@ -46,12 +56,19 @@ class MoveFrankaStandalone:
 
     def setup_scene(self):
         self._world = World(stage_units_in_meters=1.0)
-        self._world.scene.add_default_ground_plane()
+        # 기존 맵 USD를 Stage에 참조로 붙임
 
+        if not os.path.exists(self.MAP_USD_PATH):
+            raise FileNotFoundError(f"MAP_USD_PATH not found: {self.MAP_USD_PATH}")
+
+        add_reference_to_stage(self.MAP_USD_PATH, self.MAP_PRIM_PATH)
+
+        # Franka 추가 (맵과는 별도의 prim path)
         self._franka = self._world.scene.add(
             Franka(
-                prim_path="/World/Fancy_Franka",
+                prim_path=self.FRANKA_PRIM_PATH,
                 name="fancy_franka",
+                position=self.FRANKA_POSITION,
             )
         )
 

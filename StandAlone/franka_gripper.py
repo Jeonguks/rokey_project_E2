@@ -9,6 +9,8 @@ from isaacsim.core.api import World
 from isaacsim.core.utils.stage import add_reference_to_stage
 from isaacsim.core.utils.rotations import euler_angles_to_quat
 from isaacsim.robot.manipulators.examples.franka import Franka
+from isaacsim.robot.manipulators.examples.franka.controllers import PickPlaceController
+from isaacsim.core.api.objects import DynamicCuboid
 
 
 # ------------------------------------------------------------
