@@ -44,8 +44,16 @@ class MoveFrankaStandalone:
         # ===== 사용자 환경에 맞게 수정 =====
         self.MAP_USD_PATH = "/home/rokey/Documents/project/rokey_project_E2/map/test_world_origin.usd"
         self.MAP_PRIM_PATH = "/World/Map"
+        
+        self.FRANKA_USD_PATH = "/home/rokey/Documents/project/rokey_project_E2/asset/project_arm.usd"
         self.FRANKA_PRIM_PATH = "/World/Fancy_Franka"
         self.FRANKA_POSITION = np.array([0.0, 1.0, 0.0])
+
+
+
+
+
+
         # ==================================
 
         # (Pick&Place) 물체/목표
@@ -224,13 +232,20 @@ class MoveFrankaStandalone:
 
         add_reference_to_stage(self.MAP_USD_PATH, self.MAP_PRIM_PATH)
 
+        if not os.path.isfile(self.FRANKA_USD_PATH):
+            raise FileNotFoundError(self.FRANKA_USD_PATH)
+        
+        add_reference_to_stage(usd_path=self.FRANKA_USD_PATH, prim_path=self.FRANKA_PRIM_PATH)
+
         self._franka = self._world.scene.add(
             Franka(
                 prim_path=self.FRANKA_PRIM_PATH,
                 name="fancy_franka",
-                position=self.FRANKA_POSITION,
             )
         )
+        
+        self._franka.set_world_pose(position=self.FRANKA_POSITION)
+
 
         # Pick 대상 큐브 추가
         self._cube = self._world.scene.add(
