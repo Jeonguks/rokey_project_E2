@@ -40,7 +40,7 @@ class RMPFlowController(mg.MotionPolicyController):
 class MoveFrankaStandalone:
     def __init__(self):
         # ===== 사용자 환경에 맞게 수정 =====
-        self.MAP_USD_PATH = "/home/rokey/Documents/project/test_world_origin.usd"
+        self.MAP_USD_PATH = "/home/rokey/Documents/project/rokey_project_E2/map/test_world_origin.usd"
         self.MAP_PRIM_PATH = "/World/Map"
         self.FRANKA_PRIM_PATH = "/World/Fancy_Franka"
         self.FRANKA_POSITION = np.array([0.0, 1.0, 0.0])
