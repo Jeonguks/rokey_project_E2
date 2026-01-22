@@ -74,14 +74,6 @@ class MoveFrankaStandalone:
         self.CONSTRAINTS_ROOT = "/World/Constraints"
         self.FIXED_JOINT_PATH = f"{self.CONSTRAINTS_ROOT}/pick_fixed_joint"
 
-        self.JOINT_NAMES = [
-            "shoulder_pan_joint",
-            "shoulder_lift_joint",
-            "elbow_joint",
-            "wrist_1_joint",
-            "wrist_2_joint",
-            "wrist_3_joint",
-        ]
         self._world = None
         self._franka = None
         self._cube = None
