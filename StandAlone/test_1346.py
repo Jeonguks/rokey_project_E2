@@ -42,15 +42,15 @@ class RMPFlowController(mg.MotionPolicyController):
 # ------------------------------------------------------------
 # Main Application
 # ------------------------------------------------------------
-class MoveFrankaStandalone:
+class MoveArmStandalone:
     def __init__(self):
         # ===== 사용자 환경에 맞게 수정 =====
-        self.MAP_USD_PATH = "/home/rokey/Documents/project/rokey_project_E2/map/test_world_origin.usd"
+        self.MAP_USD_PATH = "/home/rokey/Desktop/edit_map.usd"
         self.MAP_PRIM_PATH = "/World/Map"
         
-        self.FRANKA_USD_PATH = "/home/rokey/Documents/project/rokey_project_E2/asset/project_arm.usd"
-        self.FRANKA_PRIM_PATH = "/World/Fancy_Franka"
-        self.FRANKA_POSITION = np.array([0.0, 1.0, 0.0])
+        self.ARM_USD_PATH = "/home/rokey/Documents/project/rokey_project_E2/asset/project_arm.usd"
+        self.ARM_PRIM_PATH = "/World/Arm"
+        self.ARM_POSITION = np.array([0.0, 1.0, 0.9])
 
 
 
@@ -74,16 +74,8 @@ class MoveFrankaStandalone:
         self.CONSTRAINTS_ROOT = "/World/Constraints"
         self.FIXED_JOINT_PATH = f"{self.CONSTRAINTS_ROOT}/pick_fixed_joint"
 
-        self.JOINT_NAMES = [
-            "shoulder_pan_joint",
-            "shoulder_lift_joint",
-            "elbow_joint",
-            "wrist_1_joint",
-            "wrist_2_joint",
-            "wrist_3_joint",
-        ]
         self._world = None
-        self._franka = None
+        self._arm = None
         self._cube = None
         self.controller = None
 
@@ -104,7 +96,7 @@ class MoveFrankaStandalone:
         # EE 목표 자세(필요시 조정)
         self.ee_quat = euler_angles_to_quat([0.0, np.pi, 0.0])
 
-        self.EE_LINK_PATH = "/World/Fancy_Franka/ee_link"
+        self.EE_LINK_PATH = "/World/Arm/ee_link"
 
 
     # ---------------------------
@@ -167,7 +159,6 @@ class MoveFrankaStandalone:
         # 월드 변환
         T_cube = self._get_world_transform(cube_path)
         T_ee = self._get_world_transform(ee_link_path)
-
         # joint frame = cube frame
         T_joint = T_cube
 
@@ -203,9 +194,9 @@ class MoveFrankaStandalone:
             target_end_effector_position=pos,
             target_end_effector_orientation=self.ee_quat
         )
-        self._franka.apply_action(action)
+        self._arm.apply_action(action)
 
-        cur = self._franka.get_joint_positions()
+        cur = self._arm.get_joint_positions()
         tgt = action.joint_positions
 
         return np.all(np.abs(cur[:6] - tgt[:6]) < thresh)
@@ -218,19 +209,19 @@ class MoveFrankaStandalone:
 
         add_reference_to_stage(self.MAP_USD_PATH, self.MAP_PRIM_PATH)
 
-        if not os.path.isfile(self.FRANKA_USD_PATH):
-            raise FileNotFoundError(self.FRANKA_USD_PATH)
+        if not os.path.isfile(self.ARM_USD_PATH):
+            raise FileNotFoundError(self.ARM_USD_PATH)
         
-        add_reference_to_stage(usd_path=self.FRANKA_USD_PATH, prim_path=self.FRANKA_PRIM_PATH)
+        add_reference_to_stage(usd_path=self.ARM_USD_PATH, prim_path=self.ARM_PRIM_PATH)
 
-        self._franka = self._world.scene.add(
+        self._arm = self._world.scene.add(
             SingleArticulation(
-                prim_path=self.FRANKA_PRIM_PATH,
-                name="fancy_franka",
+                prim_path=self.ARM_PRIM_PATH,
+                name="arm",
             )
         )
 
-        self._franka.set_world_pose(position=self.FRANKA_POSITION)
+        self._arm.set_world_pose(position=self.ARM_POSITION)
 
 
         # Pick 대상 큐브 추가
@@ -246,6 +237,7 @@ class MoveFrankaStandalone:
     # --------------------------------------------------------
     def setup_post_load(self):
         self._world.reset()
+        dof_names = self._arm.dof_names
 
         # EE 링크 찾기
         self.ee_link_path = self.EE_LINK_PATH
@@ -253,9 +245,40 @@ class MoveFrankaStandalone:
 
         self.controller = RMPFlowController(
             "rmp_controller",
-            self._franka,
+            self._arm,
             self._world.get_physics_dt(),
         )
+
+        # 초기자세 설정
+        q_home_deg_by_name = {
+            "shoulder_pan_joint":   0.0,
+            "shoulder_lift_joint": -90.0,
+            "elbow_joint":          90.0,
+            "wrist_1_joint":       -90.0,
+            "wrist_2_joint":       -90.0,
+            "wrist_3_joint":        0.0,
+        }
+        q_current = self._arm.get_joint_positions()
+        q_home_rad = np.array(q_current, dtype=np.float32)  # 기본: 현재값 유지
+
+        # deg2rad
+        for i, name in enumerate(dof_names):
+            if name in q_home_deg_by_name:
+                q_home_rad[i] = np.deg2rad(q_home_deg_by_name[name])
+
+        self._arm.set_joint_positions(q_home_rad)
+        self._arm.set_joint_velocities(np.zeros_like(q_home_rad))
+
+        for _ in range(5):
+            self._world.step(render=True)
+
+        # 컨트롤러 생성/리셋
+        self.controller = RMPFlowController(
+            "rmp_controller",
+            self._arm,
+            self._world.get_physics_dt(),
+        )
+        self.controller.reset()
 
         self._world.add_physics_callback("sim_step", self.physics_step)
         self._world.play()
@@ -342,7 +365,7 @@ class MoveFrankaStandalone:
 
 # ------------------------------------------------------------
 def main():
-    app = MoveFrankaStandalone()
+    app = MoveArmStandalone()
     app.setup_scene()
     app.setup_post_load()
 
