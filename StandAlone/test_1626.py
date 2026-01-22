@@ -56,15 +56,15 @@ class MoveArmStandalone:
         self.ARM_POSITION = np.array([-7.55068, -4.08896, 0.0])
 
         # (Pick&Place) 물체/목표
-        self.CUBE_PRIM_PATH = "/World/pick_cube"
-        self.CUBE_SIZE = 0.04
-        self.CUBE_START_POS = np.array([0.50, 0.50, 0.40])   # 큐브 시작 위치
+        # self.CUBE_PRIM_PATH = "/World/pick_cube"
+        # self.CUBE_SIZE = 0.04
+        # self.CUBE_START_POS = np.array([0.50, 0.50, 0.40])   # 큐브 시작 위치
 
-        self.PLACE_POS = np.array([0.00, -0.30, 0.40])       # 놓을 위치(바닥과 충돌 안 나게 z는 적당히)
+        self.PICK_TARGET_PRIM_PATH = "/World/Fanta_Can"   # 맵에 이미 있는 프림 경로
+        self.PLACE_POS = np.array([-6.49251, -3.36654, 0.92712], dtype=np.float32) # 놔둘 위치
+
         self.APPROACH_Z = 0.12   # approach offset (접근 높이)
         self.LIFT_Z = 0.18       # lift offset (들어올림 높이)
-
-
 
         # 고정 조인트 prim 경로
         self.CONSTRAINTS_ROOT = "/World/Constraints"
@@ -217,15 +217,15 @@ class MoveArmStandalone:
             )
         )
 
-        # Pick 대상 큐브 추가
-        self._cube = self._world.scene.add(
-            DynamicCuboid(
-                prim_path=self.CUBE_PRIM_PATH,
-                name="pick_cube",
-                position=self.CUBE_START_POS,
-                scale=np.array([self.CUBE_SIZE, self.CUBE_SIZE, self.CUBE_SIZE]),
-            )
-        )
+        # # Pick 대상 큐브 추가
+        # self._cube = self._world.scene.add(
+        #     DynamicCuboid(
+        #         prim_path=self.CUBE_PRIM_PATH,
+        #         name="pick_cube",
+        #         position=self.CUBE_START_POS,
+        #         scale=np.array([self.CUBE_SIZE, self.CUBE_SIZE, self.CUBE_SIZE]),
+        #     )
+        # )
 
     # --------------------------------------------------------
     def setup_post_load(self):
@@ -275,14 +275,49 @@ class MoveArmStandalone:
             self._world.get_physics_dt(),
         )
         self.controller.reset()
+        
+        # 잡을 물체 유효성 검사
+        self._assert_prim_exists(self.PICK_TARGET_PRIM_PATH)
+        self.ensure_rigid_body(self.PICK_TARGET_PRIM_PATH)
+
 
         self._world.add_physics_callback("sim_step", self.physics_step)
         self._world.play()
+    #-------------------------------------------------------------
+
+    def _assert_prim_exists(self, prim_path: str):
+        stage = self._get_stage()
+        prim = stage.GetPrimAtPath(prim_path)
+        if not prim or not prim.IsValid():
+            raise RuntimeError(f"Prim not found in stage: {prim_path}")
+
+    def _get_prim_world_pos(self, prim_path: str) -> np.ndarray:
+        T = self._get_world_transform(prim_path)
+        t = T.ExtractTranslation()
+        return np.array([float(t[0]), float(t[1]), float(t[2])], dtype=np.float32)
+    
+
+    # 집을 물체의 물리법칙 적용 유무 확인
+
+    def ensure_rigid_body(self, prim_path: str):
+        stage = self._get_stage()
+        prim = stage.GetPrimAtPath(prim_path)
+        if not prim or not prim.IsValid():
+            raise RuntimeError(f"Prim not found: {prim_path}")
+
+        if not prim.HasAPI(UsdPhysics.RigidBodyAPI):
+            UsdPhysics.RigidBodyAPI.Apply(prim)
+
+        if not prim.HasAPI(UsdPhysics.CollisionAPI):
+            UsdPhysics.CollisionAPI.Apply(prim)
+
+        print(f"[OK] ensure_rigid_body: {prim_path}")
 
     # --------------------------------------------------------
     def physics_step(self, step_size):
         # 목표 포즈들 계산
-        cube_pos = self.CUBE_START_POS.copy()
+        cube_pos = self._get_prim_world_pos(self.PICK_TARGET_PRIM_PATH)
+
         pre_grasp = cube_pos.copy()
         pre_grasp[2] += self.APPROACH_Z
 
@@ -319,7 +354,9 @@ class MoveArmStandalone:
 
         elif self.phase == 3:
             # attach (fixed joint)
-            self.attach_fixed_joint(self.CUBE_PRIM_PATH, self.ee_link_path)
+            # self.attach_fixed_joint(self.CUBE_PRIM_PATH, self.ee_link_path)
+            self.attach_fixed_joint(self.PICK_TARGET_PRIM_PATH, self.ee_link_path)
+
             self.phase = 4
 
         elif self.phase == 4:
