@@ -45,7 +45,7 @@ class RMPFlowController(mg.MotionPolicyController):
 class MoveArmStandalone:
     def __init__(self):
         # ===== 사용자 환경에 맞게 수정 =====
-        self.MAP_USD_PATH = "/home/rokey/Desktop/second_con2.usd"
+        self.MAP_USD_PATH = "/home/rokey/Desktop/edit_map.usd"
         self.MAP_PRIM_PATH = "/World/Map"
         
         self.ARM_USD_PATH = "/home/rokey/Documents/project/rokey_project_E2/asset/project_arm.usd"
