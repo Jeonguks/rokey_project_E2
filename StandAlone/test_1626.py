@@ -14,7 +14,7 @@ from isaacsim.core.utils.types import ArticulationAction
 from isaacsim.core.api.objects import DynamicCuboid
 
 import omni.usd
-from pxr import UsdGeom, Gf, UsdPhysics, PhysxSchema
+from pxr import UsdGeom, Gf, UsdPhysics, PhysxSchema, Usd, Sdf
 
 
 # ------------------------------------------------------------
@@ -61,8 +61,9 @@ class MoveArmStandalone:
         # self.CUBE_START_POS = np.array([0.50, 0.50, 0.40])   # 큐브 시작 위치
 
         self.PICK_TARGET_PRIM_PATH = "/World/Map/Fanta_Can"   # 맵에 이미 있는 프림 경로
-        self.PLACE_POS = np.array([-6.49251, -3.36654, 0.92712], dtype=np.float32) # 놔둘 위치
-
+        self.PLACE_POS = np.array([-7.82042, -3.38997, 0.2], dtype=np.float32) # 놔둘 위치
+#-7.82042, -3.38997, 0.92712]
+#-7.40
         self.APPROACH_Z = 0.12   # approach offset (접근 높이)
         self.LIFT_Z = 0.18       # lift offset (들어올림 높이)
 
@@ -295,7 +296,10 @@ class MoveArmStandalone:
 
         # 최종 검증 + 물리 적용
         self._assert_prim_exists(self.PICK_TARGET_PRIM_PATH)
-        self.ensure_rigid_body(self.PICK_TARGET_PRIM_PATH)
+        self.ensure_rigid_body_recursive(self.PICK_TARGET_PRIM_PATH, approximation="convexHull")
+
+        self._world.play()
+        self._world.add_physics_callback("sim_step", self.physics_step)
     #-------------------------------------------------------------
 
     def wait_for_prim(self, prim_path: str, max_frames: int = 300, render: bool = True) -> bool:
@@ -395,11 +399,63 @@ class MoveArmStandalone:
             # 여기서 죽지 않게 하고, PhysX가 자동 fallback(convexHull) 하게 둠
             print(f"[WARN] ensure_rigid_body: could not set collision approximation for {prim_path}. "
                   f"Will rely on PhysX fallback. Error: {e}")
+    def ensure_rigid_body_recursive(self, root_path: str, approximation: str = "convexHull"):
+        """
+        root_path 아래에서 PhysX가 실제로 collision을 읽는 Mesh/Gprim까지 포함하여
+        RigidBody/Collision 및 collisionApproximation을 강제한다.
+        """
+        stage = self._get_stage()
+        root = stage.GetPrimAtPath(root_path)
+        if not root or not root.IsValid():
+            raise RuntimeError(f"Prim not found: {root_path}")
+
+        # (1) root에는 RigidBody를 적용 (움직일 바디는 root로 잡는 편이 안정적)
+        if not root.HasAPI(UsdPhysics.RigidBodyAPI):
+            UsdPhysics.RigidBodyAPI.Apply(root)
+        if not root.HasAPI(UsdPhysics.CollisionAPI):
+            UsdPhysics.CollisionAPI.Apply(root)
+
+        # (2) root와 자식들의 collision approximation을 전부 강제
+        #     - PhysX는 보통 Mesh/Gprim prim에서 collision을 파싱함
+        targets = []
+        for prim in Usd.PrimRange(root):
+            # Xform이든 Mesh든 일단 collisionApproximation은 걸어두는 게 안전
+            targets.append(prim)
+
+        for prim in targets:
+            # Collision API는 Mesh/Gprim에 붙이는 게 일반적이지만,
+            # 어떤 USD는 collision이 상위에 붙어있을 수도 있어 광범위 적용
+            if not prim.HasAPI(UsdPhysics.CollisionAPI):
+                UsdPhysics.CollisionAPI.Apply(prim)
+
+            # Physx collision approximation (호환형)
+            try:
+                physx_col = PhysxSchema.PhysxCollisionAPI.Apply(prim) if not prim.HasAPI(PhysxSchema.PhysxCollisionAPI) \
+                            else PhysxSchema.PhysxCollisionAPI(prim)
+
+                if hasattr(physx_col, "GetCollisionApproximationAttr"):
+                    attr = physx_col.GetCollisionApproximationAttr()
+                    if attr:
+                        attr.Set(approximation)
+                        continue
+
+                # attribute 직접 set / create
+                a = prim.GetAttribute("physxCollision:collisionApproximation")
+                if a and a.IsValid():
+                    a.Set(approximation)
+                else:
+                    prim.CreateAttribute("physxCollision:collisionApproximation", Sdf.ValueTypeNames.Token).Set(approximation)
+
+            except Exception:
+                # 여기서 죽지 않게
+                pass
+
+        print(f"[OK] ensure_rigid_body_recursive: {root_path} (approx={approximation}, prims={len(targets)})")
 
 
     # --------------------------------------------------------
     def physics_step(self, step_size):
-        # 목표 포즈들 계산
+        # 0) 목표 포즈들 계산을 맨 먼저 (cube_pos 선계산)
         cube_pos = self._get_prim_world_pos(self.PICK_TARGET_PRIM_PATH)
 
         pre_grasp = cube_pos.copy()
@@ -415,63 +471,60 @@ class MoveArmStandalone:
 
         place = self.PLACE_POS.copy()
 
+        # 1) 디버그는 cube_pos/pre_grasp 만든 뒤에
+        if self.phase == 0 and self.wait_steps == 0:
+            ee_T = self._get_world_transform(self.EE_LINK_PATH)
+            ee_t = ee_T.ExtractTranslation()
+            ee_pos = np.array([float(ee_t[0]), float(ee_t[1]), float(ee_t[2])], dtype=np.float32)
+
+            print("[DBG] can_pos(world) =", cube_pos)
+            print("[DBG] ee_pos(world)  =", ee_pos)
+            print("[DBG] pre_grasp      =", pre_grasp)
+            self.wait_steps = 1  # 한 번만 출력
+
+        # 2) 기존 phase 로직
         if self.phase == 0:
-            # approach above cube
             if self.move_ee_to(pre_grasp):
                 self.controller.reset()
                 self.phase = 1
 
         elif self.phase == 1:
-            # descend to cube
             if self.move_ee_to(grasp):
                 self.controller.reset()
                 self.phase = 2
                 self.wait_steps = 0
 
         elif self.phase == 2:
-            # close gripper
-            if self.wait_steps == 0:
-                pass
             self.wait_steps += 1
             if self.wait_steps > 25:
                 self.phase = 3
 
         elif self.phase == 3:
-            # attach (fixed joint)
-            # self.attach_fixed_joint(self.CUBE_PRIM_PATH, self.ee_link_path)
             self.attach_fixed_joint(self.PICK_TARGET_PRIM_PATH, self.ee_link_path)
-
             self.phase = 4
 
         elif self.phase == 4:
-            # lift
             if self.move_ee_to(lift):
                 self.controller.reset()
                 self.phase = 5
 
         elif self.phase == 5:
-            # move above place
             if self.move_ee_to(place_pre):
                 self.controller.reset()
                 self.phase = 6
 
         elif self.phase == 6:
-            # descend to place
             if self.move_ee_to(place):
                 self.controller.reset()
                 self.phase = 7
                 self.wait_steps = 0
 
         elif self.phase == 7:
-            # open gripper
-            if self.wait_steps == 0:
-                pass
             self.wait_steps += 1
             if self.wait_steps > 20:
                 self.phase = 8
 
         elif self.phase == 8:
-            # detach
             self.detach_fixed_joint()
             self.phase = 9
             print("[DONE] Pick & Place finished (FixedJoint attach/detach).")
