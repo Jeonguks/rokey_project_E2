@@ -8,7 +8,7 @@ import isaacsim.robot_motion.motion_generation as mg
 from isaacsim.core.api import World
 from isaacsim.core.utils.stage import add_reference_to_stage
 from isaacsim.core.utils.rotations import euler_angles_to_quat
-from isaacsim.robot.manipulators.examples.franka import Franka
+from isaacsim.core.prims import SingleArticulation
 from isaacsim.core.api.objects import DynamicCuboid
 
 import omni.usd
@@ -238,12 +238,12 @@ class MoveFrankaStandalone:
         add_reference_to_stage(usd_path=self.FRANKA_USD_PATH, prim_path=self.FRANKA_PRIM_PATH)
 
         self._franka = self._world.scene.add(
-            Franka(
+            SingleArticulation(
                 prim_path=self.FRANKA_PRIM_PATH,
                 name="fancy_franka",
             )
         )
-        
+
         self._franka.set_world_pose(position=self.FRANKA_POSITION)
 
 
@@ -269,11 +269,6 @@ class MoveFrankaStandalone:
             "rmp_controller",
             self._franka,
             self._world.get_physics_dt(),
-        )
-
-        # 시작 시 그리퍼 OPEN
-        self._franka.gripper.set_joint_positions(
-            self._franka.gripper.joint_opened_positions
         )
 
         self._world.add_physics_callback("sim_step", self.physics_step)
@@ -312,7 +307,7 @@ class MoveFrankaStandalone:
         elif self.phase == 2:
             # close gripper
             if self.wait_steps == 0:
-                self._franka.gripper.close()
+                pass
             self.wait_steps += 1
             if self.wait_steps > 25:
                 self.phase = 3
@@ -344,7 +339,7 @@ class MoveFrankaStandalone:
         elif self.phase == 7:
             # open gripper
             if self.wait_steps == 0:
-                self._franka.gripper.open()
+                pass
             self.wait_steps += 1
             if self.wait_steps > 20:
                 self.phase = 8
