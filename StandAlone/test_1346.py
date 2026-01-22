@@ -42,10 +42,10 @@ class RMPFlowController(mg.MotionPolicyController):
 # ------------------------------------------------------------
 # Main Application
 # ------------------------------------------------------------
-class MoveFrankaStandalone:
+class MoveArmStandalone:
     def __init__(self):
         # ===== 사용자 환경에 맞게 수정 =====
-        self.MAP_USD_PATH = "/home/rokey/Documents/project/rokey_project_E2/map/test_world_origin.usd"
+        self.MAP_USD_PATH = "/home/rokey/Desktop/second_con2.usd"
         self.MAP_PRIM_PATH = "/World/Map"
         
         self.ARM_USD_PATH = "/home/rokey/Documents/project/rokey_project_E2/asset/project_arm.usd"
@@ -210,14 +210,14 @@ class MoveFrankaStandalone:
 
         add_reference_to_stage(self.MAP_USD_PATH, self.MAP_PRIM_PATH)
 
-        if not os.path.isfile(self.FRANKA_USD_PATH):
-            raise FileNotFoundError(self.FRANKA_USD_PATH)
+        if not os.path.isfile(self.ARM_USD_PATH):
+            raise FileNotFoundError(self.ARM_USD_PATH)
         
-        add_reference_to_stage(usd_path=self.FRANKA_USD_PATH, prim_path=self.FRANKA_PRIM_PATH)
+        add_reference_to_stage(usd_path=self.ARM_USD_PATH, prim_path=self.ARM_PRIM_PATH)
 
         self._arm = self._world.scene.add(
             SingleArticulation(
-                prim_path=self.FRANKA_PRIM_PATH,
+                prim_path=self.ARM_PRIM_PATH,
                 name="arm",
             )
         )
@@ -366,7 +366,7 @@ class MoveFrankaStandalone:
 
 # ------------------------------------------------------------
 def main():
-    app = MoveFrankaStandalone()
+    app = MoveArmStandalone()
     app.setup_scene()
     app.setup_post_load()
 
