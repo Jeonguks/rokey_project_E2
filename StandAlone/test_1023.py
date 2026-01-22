@@ -9,6 +9,8 @@ from isaacsim.core.api import World
 from isaacsim.core.utils.stage import add_reference_to_stage
 from isaacsim.core.utils.rotations import euler_angles_to_quat
 from isaacsim.core.prims import SingleArticulation
+from isaacsim.core.utils.types import ArticulationAction
+
 from isaacsim.core.api.objects import DynamicCuboid
 
 import omni.usd
@@ -65,14 +67,20 @@ class MoveFrankaStandalone:
         self.APPROACH_Z = 0.12   # approach offset (접근 높이)
         self.LIFT_Z = 0.18       # lift offset (들어올림 높이)
 
-        # EE 링크 후보(환경마다 다릅니다). Stage에서 실제 링크 이름에 맞춰 수정하세요.
-        # 예: panda_hand, hand, panda_link8 등
-        self.EE_LINK_CANDIDATES = ["panda_hand", "hand", "panda_link8"] # panda_hand
+
 
         # 고정 조인트 prim 경로
         self.CONSTRAINTS_ROOT = "/World/Constraints"
         self.FIXED_JOINT_PATH = f"{self.CONSTRAINTS_ROOT}/pick_fixed_joint"
 
+        self.JOINT_NAMES = [
+            "shoulder_pan_joint",
+            "shoulder_lift_joint",
+            "elbow_joint",
+            "wrist_1_joint",
+            "wrist_2_joint",
+            "wrist_3_joint",
+        ]
         self._world = None
         self._franka = None
         self._cube = None
@@ -95,8 +103,8 @@ class MoveFrankaStandalone:
         # EE 목표 자세(필요시 조정)
         self.ee_quat = euler_angles_to_quat([0.0, np.pi, 0.0])
 
-        # EE 링크 경로(런타임에 탐색해서 채움)
-        self.ee_link_path = None
+        self.EE_LINK_PATH = "/World/Fancy_Franka/ee_link"
+
 
     # ---------------------------
     # USD Utils
@@ -126,32 +134,6 @@ class MoveFrankaStandalone:
                                                      float(qd.GetImaginary()[2])))
         return pos, quat
 
-    # ---------------------------
-    # EE link 찾기
-    # ---------------------------
-    def find_ee_link_path(self):
-        stage = self._get_stage()
-
-        # Franka root 아래에서 후보 이름을 가진 prim을 찾아 첫 번째를 EE로 사용
-        for cand in self.EE_LINK_CANDIDATES:
-            # 가장 단순하게는 "프림 이름이 cand인 것을 전체 stage에서 찾기"를 합니다.
-            # (여러 개 나오면 Franka 아래 첫 번째를 선택)
-            for prim in stage.Traverse():
-                if prim.GetName() == cand:
-                    p = str(prim.GetPath())
-                    if p.startswith(self.FRANKA_PRIM_PATH):
-                        return p
-
-        # 못 찾으면 fallback: Franka 아래 children 출력해서 사용자에게 힌트
-        franka_prim = stage.GetPrimAtPath(self.FRANKA_PRIM_PATH)
-        if franka_prim and franka_prim.IsValid():
-            print("[EE LINK NOT FOUND] Franka children (top-level):")
-            for c in franka_prim.GetChildren():
-                print(" -", c.GetPath())
-
-        raise RuntimeError(
-            "EE link prim not found. Update EE_LINK_CANDIDATES to match your stage link names."
-        )
 
     # ---------------------------
     # Attach / Detach (Fixed Joint)
@@ -262,7 +244,7 @@ class MoveFrankaStandalone:
         self._world.reset()
 
         # EE 링크 찾기
-        self.ee_link_path = self.find_ee_link_path()
+        self.ee_link_path = self.EE_LINK_PATH
         print(f"[INFO] EE link path = {self.ee_link_path}")
 
         self.controller = RMPFlowController(
