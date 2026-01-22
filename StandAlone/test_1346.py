@@ -50,7 +50,7 @@ class MoveArmStandalone:
         
         self.ARM_USD_PATH = "/home/rokey/Documents/project/rokey_project_E2/asset/project_arm.usd"
         self.ARM_PRIM_PATH = "/World/Arm"
-        self.ARM_POSITION = np.array([0.0, 1.0, 0.0])
+        self.ARM_POSITION = np.array([0.0, 1.0, 0.9])
 
 
 
@@ -159,7 +159,6 @@ class MoveArmStandalone:
         # 월드 변환
         T_cube = self._get_world_transform(cube_path)
         T_ee = self._get_world_transform(ee_link_path)
-
         # joint frame = cube frame
         T_joint = T_cube
 
