@@ -231,20 +231,10 @@ class MoveArmStandalone:
     def setup_post_load(self):
         self._world.reset()
 
-        # reset 이후 로봇 위치 고정
-        self._arm.set_world_pose(position=self.ARM_POSITION)
-        self._arm.set_joint_velocities(np.zeros_like(self._arm.get_joint_positions()))
-
-        # 1~2프레임 반영(중요)
-        for _ in range(2):
-            self._world.step(render=True)
-
+        # 0) dof names 확보
         dof_names = self._arm.dof_names
-        self.ee_link_path = self.EE_LINK_PATH # EE 링크 찾기
-        print(f"[INFO] EE link path = {self.ee_link_path}")
 
-
-        # 초기자세 설정
+        # 1) 먼저 "홈 자세"를 세팅 (물리 play 전)
         q_home_deg_by_name = {
             "shoulder_pan_joint":   0.0,
             "shoulder_lift_joint": -90.0,
@@ -253,33 +243,40 @@ class MoveArmStandalone:
             "wrist_2_joint":       -90.0,
             "wrist_3_joint":        0.0,
         }
-        q_current = self._arm.get_joint_positions()
-        q_home_rad = np.array(q_current, dtype=np.float32)  # 기본: 현재값 유지
 
-        # deg2rad
+        q_current = self._arm.get_joint_positions()
+        q_home_rad = np.array(q_current, dtype=np.float32)
         for i, name in enumerate(dof_names):
             if name in q_home_deg_by_name:
                 q_home_rad[i] = np.deg2rad(q_home_deg_by_name[name])
 
+        # ★ 먼저 조인트 포즈부터
         self._arm.set_joint_positions(q_home_rad)
         self._arm.set_joint_velocities(np.zeros_like(q_home_rad))
 
+        # 2) 그 다음 베이스 위치를 확정
+        self._arm.set_world_pose(position=self.ARM_POSITION)
+        self._arm.set_joint_velocities(np.zeros_like(self._arm.get_joint_positions()))
+
+        # 3) 2~5프레임 반영 (끼임/충돌 전에 안정화)
         for _ in range(5):
             self._world.step(render=True)
 
+        # 4) EE 링크 경로
+        self.ee_link_path = self.EE_LINK_PATH
+        print(f"[INFO] EE link path = {self.ee_link_path}")
 
-        # 컨트롤러 생성/리셋
+        # 5) 컨트롤러 생성/리셋은 제일 마지막에
         self.controller = RMPFlowController(
             "rmp_controller",
             self._arm,
             self._world.get_physics_dt(),
         )
         self.controller.reset()
-        
-        # 잡을 물체 유효성 검사
+
+        # 6) pick prim 체크/물리 적용도 play 전
         self._assert_prim_exists(self.PICK_TARGET_PRIM_PATH)
         self.ensure_rigid_body(self.PICK_TARGET_PRIM_PATH)
-
 
         self._world.add_physics_callback("sim_step", self.physics_step)
         self._world.play()
