@@ -14,7 +14,7 @@ from isaacsim.core.utils.types import ArticulationAction
 from isaacsim.core.api.objects import DynamicCuboid
 
 import omni.usd
-from pxr import UsdGeom, Gf, UsdPhysics
+from pxr import UsdGeom, Gf, UsdPhysics, PhysxSchema
 
 
 # ------------------------------------------------------------
@@ -60,7 +60,7 @@ class MoveArmStandalone:
         # self.CUBE_SIZE = 0.04
         # self.CUBE_START_POS = np.array([0.50, 0.50, 0.40])   # 큐브 시작 위치
 
-        self.PICK_TARGET_PRIM_PATH = "/World/Fanta_Can"   # 맵에 이미 있는 프림 경로
+        self.PICK_TARGET_PRIM_PATH = "/World/Map/Fanta_Can"   # 맵에 이미 있는 프림 경로
         self.PLACE_POS = np.array([-6.49251, -3.36654, 0.92712], dtype=np.float32) # 놔둘 위치
 
         self.APPROACH_Z = 0.12   # approach offset (접근 높이)
@@ -210,6 +210,10 @@ class MoveArmStandalone:
         
         add_reference_to_stage(usd_path=self.ARM_USD_PATH, prim_path=self.ARM_PRIM_PATH)
 
+        for _ in range(5):
+            self._world.step(render=True)
+
+
         self._arm = self._world.scene.add(
             SingleArticulation(
                 prim_path=self.ARM_PRIM_PATH,
@@ -274,14 +278,56 @@ class MoveArmStandalone:
         )
         self.controller.reset()
 
-        # 6) pick prim 체크/물리 적용도 play 전
+        # 6) pick prim 로드/경로 확정 (play 전)
+        # 6-1) 먼저 지정 경로로 기다려본다
+        if not self.wait_for_prim(self.PICK_TARGET_PRIM_PATH, max_frames=240, render=True):
+            # 6-2) 여전히 없으면 "이름"으로 Stage 전체에서 찾아서 경로 보정
+            name_guess = self.PICK_TARGET_PRIM_PATH.split("/")[-1]  # "Fanta_Can"
+            found = self.resolve_prim_by_name(name_guess)
+            if found is None:
+                # 여기서 죽으면: 맵 USD에 진짜로 없거나, 더 늦게 로딩되거나, 이름이 다름
+                raise RuntimeError(
+                    f"Prim not found: {self.PICK_TARGET_PRIM_PATH} (also not found by name='{name_guess}'). "
+                    f"Check USD contents / prim name / load timing."
+                )
+            print(f"[WARN] PICK_TARGET_PRIM_PATH not found. Resolved by name: {self.PICK_TARGET_PRIM_PATH} -> {found}")
+            self.PICK_TARGET_PRIM_PATH = found
+
+        # 최종 검증 + 물리 적용
         self._assert_prim_exists(self.PICK_TARGET_PRIM_PATH)
         self.ensure_rigid_body(self.PICK_TARGET_PRIM_PATH)
-
-        self._world.add_physics_callback("sim_step", self.physics_step)
-        self._world.play()
     #-------------------------------------------------------------
 
+    def wait_for_prim(self, prim_path: str, max_frames: int = 300, render: bool = True) -> bool:
+        """
+        prim이 stage에 나타날 때까지 world.step()을 돌리며 대기
+        """
+        stage = self._get_stage()
+        for _ in range(max_frames):
+            prim = stage.GetPrimAtPath(prim_path)
+            if prim and prim.IsValid():
+                return True
+            # 로딩/초기화가 진행되도록 step
+            self._world.step(render=render)
+        return False
+
+    def resolve_prim_by_name(self, prim_name: str) -> str | None:
+        """
+        Stage 전체를 훑어서 이름이 prim_name인 prim의 path를 찾아 반환
+        (예: "Fanta_Can" 이름 프림을 찾아 실제 경로를 알아냄)
+        """
+        stage = self._get_stage()
+        for prim in stage.Traverse():
+            try:
+                if prim.GetName() == prim_name:
+                    return prim.GetPath().pathString
+            except Exception:
+                pass
+        return None
+
+
+
+    #################3
     def _assert_prim_exists(self, prim_path: str):
         stage = self._get_stage()
         prim = stage.GetPrimAtPath(prim_path)
@@ -296,19 +342,60 @@ class MoveArmStandalone:
 
     # 집을 물체의 물리법칙 적용 유무 확인
 
-    def ensure_rigid_body(self, prim_path: str):
+    def ensure_rigid_body(self, prim_path: str, approximation: str = "convexHull"):
         stage = self._get_stage()
         prim = stage.GetPrimAtPath(prim_path)
         if not prim or not prim.IsValid():
             raise RuntimeError(f"Prim not found: {prim_path}")
 
+        # 1) RigidBody / Collision 적용
         if not prim.HasAPI(UsdPhysics.RigidBodyAPI):
             UsdPhysics.RigidBodyAPI.Apply(prim)
-
         if not prim.HasAPI(UsdPhysics.CollisionAPI):
             UsdPhysics.CollisionAPI.Apply(prim)
 
-        print(f"[OK] ensure_rigid_body: {prim_path}")
+        # 2) PhysX collision approximation 설정 (버전 호환)
+        # - 어떤 버전은 CreateCollisionApproximationAttr가 없고 GetCollisionApproximationAttr만 있음
+        # - 어떤 버전은 Attr 이름/네임스페이스가 다를 수 있음
+        try:
+            physx_col = PhysxSchema.PhysxCollisionAPI.Apply(prim) if not prim.HasAPI(PhysxSchema.PhysxCollisionAPI) \
+                        else PhysxSchema.PhysxCollisionAPI(prim)
+
+            # (A) 가장 흔한 패턴: GetCollisionApproximationAttr().Set(...)
+            if hasattr(physx_col, "GetCollisionApproximationAttr"):
+                attr = physx_col.GetCollisionApproximationAttr()
+                if attr:
+                    attr.Set(approximation)
+                    print(f"[OK] ensure_rigid_body: {prim_path} (approx={approximation})")
+                    return
+
+            # (B) 속성명을 직접 찾아서 세팅 (fallback)
+            # 속성 후보들 (버전에 따라 다를 수 있음)
+            candidate_attr_names = [
+                "physxCollision:collisionApproximation",
+                "physxCollision:collision_approximation",
+                "physxCollision:approximation",
+                "collisionApproximation",
+            ]
+            for name in candidate_attr_names:
+                a = prim.GetAttribute(name)
+                if a and a.IsValid():
+                    a.Set(approximation)
+                    print(f"[OK] ensure_rigid_body: {prim_path} (approx={approximation}, attr={name})")
+                    return
+
+            # (C) 아예 없으면 create 해서 세팅
+            # USD에서 string token 계열로 들어가는 경우가 많아 Sdf.ValueTypeNames.Token을 사용
+            from pxr import Sdf
+            a = prim.CreateAttribute("physxCollision:collisionApproximation", Sdf.ValueTypeNames.Token)
+            a.Set(approximation)
+            print(f"[OK] ensure_rigid_body: {prim_path} (approx={approximation}, created attr)")
+
+        except Exception as e:
+            # 여기서 죽지 않게 하고, PhysX가 자동 fallback(convexHull) 하게 둠
+            print(f"[WARN] ensure_rigid_body: could not set collision approximation for {prim_path}. "
+                  f"Will rely on PhysX fallback. Error: {e}")
+
 
     # --------------------------------------------------------
     def physics_step(self, step_size):
