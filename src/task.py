@@ -23,7 +23,7 @@ CLOSE_GRIPPER_ANGLE = 0.425
 
 SCENARIO = [
     ("init", [0.00000, -1.57080, 0.00000, -1.57080, 1.57080, 1.57080, OPEN_GRIPPER_ANGLE], 15.0),
-    ("pre_grasp (open)", [-0.18151, -1.88495, -0.65798, -0.58818, 1.72264, 3.14159, OPEN_GRIPPER_ANGLE], 5.0),
+    ("pre_grasp", [-0.18151, -1.88495, -0.65798, -0.58818, 1.72264, 3.14159, OPEN_GRIPPER_ANGLE], 5.0),
     ("grasp", [-0.18151, -1.88496, -0.65799, -0.58818, 1.72264, 3.14159, CLOSE_GRIPPER_ANGLE], 5.0),
     ("lift after grasp", [-0.18151, -1.69500, -0.65799, -0.58818, 1.72264, 3.14159, CLOSE_GRIPPER_ANGLE ], 5.0),
     ("rotate base to place", [3.25000, -1.69500, -0.65799, -0.58818, 1.72264, 3.14159, CLOSE_GRIPPER_ANGLE], 8.0),
@@ -38,6 +38,8 @@ class JointScenarioRunner(Node):
     def __init__(self):
         super().__init__('joint_scenario_runner')
         self.pub = self.create_publisher(JointState, '/joint_command', 10)
+        self._pre_grasp_task_done = False # 그립전 자세정렬 완료 유무 
+        self._pre_grasp_task_successed = False # 그립전 자세정렬 완료 유무
 
     def send_joint_target(self, positions):
         msg = JointState()
@@ -45,11 +47,26 @@ class JointScenarioRunner(Node):
         msg.position = positions
         self.pub.publish(msg)
 
+    def task_on_pre_grasp(self):
+        self.get_logger().info("[TASK] Running custom task at pre_grasp")
+
+        if self._pre_grasp_task_done and self._pre_grasp_task_successed:
+            self.get_logger().info("[TASK] Successed task at pre_grasp")
+        else:
+            self.get_logger().warn("[TASK] FAILED task at pre_grasp")
+
+
+
+
     def run_scenario(self):
         self.get_logger().info("=== Starting joint scenario ===")
 
         for step_name, target, timeout in SCENARIO:
             self.get_logger().info(f"[STEP] {step_name} | timeout={timeout}s | target={target}")
+
+            if step_name == "pre_grasp" and not self._pre_grasp_task_done:
+                self.task_on_pre_grasp()
+                self._pre_grasp_task_done = True
 
             start_t = time.time()
             while time.time() - start_t < timeout:
