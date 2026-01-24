@@ -3,6 +3,10 @@ import time
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
+from geometry_msgs.msg import TwistStamped 
+from std_msgs.msg import String
+
+
 
 JOINT_NAMES = [
     'shoulder_pan_joint',
@@ -39,7 +43,32 @@ class JointScenarioRunner(Node):
     def __init__(self):
         super().__init__('joint_scenario_runner')
         self.pub = self.create_publisher(JointState, '/joint_command', 10)
+
+        # 보정자세 수신
+        self._corr_msg = None
+        self._corr_time = None
+        self.create_subscription(TwistStamped, '/vision_correction', self._on_corr, 10)
+
+
+        # 타겟 수신
+        self._target_msg = None
+        self._target_time = None
+        self.create_subscription(String, "/stock/target_class", self._on_target, 10)
+
+
         self.PRE_GRASP_TASK_TIMEOUT = 15.0 # pre_grasp 태스크 타임아웃(초)
+
+
+    # 타겟 수신 콜백
+    def _on_target(self, msg: String):
+        self._target_msg = msg.data
+        self._target_time = time.time()
+        
+    # 보정자세 수신 콜백
+    def _on_corr(self, msg: TwistStamped):
+        self._corr_msg = msg
+        self._corr_time = time.time()
+
 
     def send_joint_target(self, positions):
         msg = JointState()
@@ -55,13 +84,23 @@ class JointScenarioRunner(Node):
     ## pre grasp task
     def task_on_pre_grasp(self, timeout_sec: float) -> bool:
         self.get_logger().info(f"[TASK] pre_grasp task start (timeout={timeout_sec:.1f}s)")
-        start_time = time.time()
+        
+        start_time = time.time() # 타임아웃 시간 측정 
 
         while time.time() - start_time < timeout_sec:
-            # TODO: 성공 조건 체크해서 성공이면 return True
-            time.sleep(0.05)
-            return True
-
+            rclpy.spin_once(self, timeout_sec=0.1)
+            if self._corr_msg is not None:
+                self.get_logger().info(
+                    f"[TASK] got correction: "
+                    f"lin=({self._corr_msg.twist.linear.x:.3f}, "
+                    f"{self._corr_msg.twist.linear.y:.3f}, "
+                    f"{self._corr_msg.twist.linear.z:.3f}) "
+                    f"ang=({self._corr_msg.twist.angular.x:.3f}, "
+                    f"{self._corr_msg.twist.angular.y:.3f}, "
+                    f"{self._corr_msg.twist.angular.z:.3f})"
+                )
+                return True
+            
         self.get_logger().warn("[TASK] pre_grasp task TIMEOUT")
         return False
 
@@ -74,7 +113,7 @@ class JointScenarioRunner(Node):
             if step_name == "pre_grasp":
                 ok = self.task_on_pre_grasp(self.PRE_GRASP_TASK_TIMEOUT)
                 if not ok:
-                    self.goto_init()
+                    self.task_goto_init()
                     self.get_logger().warn("[ABORT] Scenario aborted due to pre_grasp task timeout.")
                     return
                 
