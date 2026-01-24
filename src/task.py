@@ -76,33 +76,66 @@ class JointScenarioRunner(Node):
         msg.position = positions
         self.pub.publish(msg)
 
+
+    def apply_corr_to_joint_target(self, base_target, corr: TwistStamped):
+        """
+        corr.twist.linear.x/y (m)를 관절각(rad)로 '근사 변환'하여 base_target을 수정.
+        - 여기서는 가장 안전한 방식으로 base yaw만 보정(간이)
+        """
+        new_target = list(base_target)
+
+        dx = corr.twist.linear.x
+        dy = corr.twist.linear.y
+
+        # 근사 게인: dy(좌우 오차)가 +면 yaw를 -로 돌려서 중앙으로 맞춘다고 가정
+        # 값은 반드시 튜닝 필요 (예: 0.5 ~ 2.0 rad/m 사이에서 시작)
+        K_YAW = 1.0   # rad per meter (튜닝)
+        yaw_delta = -K_YAW * dy
+
+        # 너무 큰 보정 방지(클램프)
+        MAX_YAW_STEP = 0.15  # rad (약 8.6도)
+        if yaw_delta > MAX_YAW_STEP:
+            yaw_delta = MAX_YAW_STEP
+        if yaw_delta < -MAX_YAW_STEP:
+            yaw_delta = -MAX_YAW_STEP
+
+        # shoulder_pan_joint가 index 0이라고 가정 (JOINT_NAMES 기준)
+        new_target[0] = float(new_target[0] + yaw_delta)
+        return new_target
+
+
+
     ## task 실패시 초기자세 이동 
     def task_goto_init(self):
         self.get_logger().warn("[RECOVERY] Go back to init")
         self.send_joint_target(INIT_POSITION)
 
     ## pre grasp task
-    def task_on_pre_grasp(self, timeout_sec: float) -> bool:
-        self.get_logger().info(f"[TASK] pre_grasp task start (timeout={timeout_sec:.1f}s)")
-        
-        start_time = time.time() # 타임아웃 시간 측정 
+    def task_on_pre_grasp(self, base_target, timeout_sec: float):
+        """
+        성공 시: (True, corrected_target)
+        실패 시: (False, None)
+        """
+        self.get_logger().info(f"[TASK] pre_grasp wait correction (timeout={timeout_sec:.1f}s)")
+        self._corr_msg = None
+        self._corr_time = None
 
+        start_time = time.time()
         while time.time() - start_time < timeout_sec:
             rclpy.spin_once(self, timeout_sec=0.1)
             if self._corr_msg is not None:
+                corr = self._corr_msg
+
+                corrected = self.apply_corr_to_joint_target(base_target, corr)
+
                 self.get_logger().info(
-                    f"[TASK] got correction: "
-                    f"lin=({self._corr_msg.twist.linear.x:.3f}, "
-                    f"{self._corr_msg.twist.linear.y:.3f}, "
-                    f"{self._corr_msg.twist.linear.z:.3f}) "
-                    f"ang=({self._corr_msg.twist.angular.x:.3f}, "
-                    f"{self._corr_msg.twist.angular.y:.3f}, "
-                    f"{self._corr_msg.twist.angular.z:.3f})"
+                    f"[TASK] apply correction -> base_yaw {base_target[0]:.3f} -> {corrected[0]:.3f}"
                 )
-                return True
-            
+                return True, corrected
+
         self.get_logger().warn("[TASK] pre_grasp task TIMEOUT")
-        return False
+        return False, None
+
 
     def run_scenario(self):
         self.get_logger().info("=== Starting joint scenario ===")
@@ -111,11 +144,13 @@ class JointScenarioRunner(Node):
             self.get_logger().info(f"[STEP] {step_name} | timeout={timeout}s | target={target}")
 
             if step_name == "pre_grasp":
-                ok = self.task_on_pre_grasp(self.PRE_GRASP_TASK_TIMEOUT)
+                ok, corrected_target = self.task_on_pre_grasp(target, self.PRE_GRASP_TASK_TIMEOUT)
                 if not ok:
                     self.task_goto_init()
                     self.get_logger().warn("[ABORT] Scenario aborted due to pre_grasp task timeout.")
                     return
+                target = corrected_target
+
                 
             start_t = time.time()
 
