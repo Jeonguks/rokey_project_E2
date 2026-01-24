@@ -3,6 +3,7 @@ import rclpy
 from rclpy.node import Node
 
 from sensor_msgs.msg import Image
+from std_msgs.msg import String
 from geometry_msgs.msg import Point, TwistStamped
 
 import message_filters
@@ -45,7 +46,13 @@ class YoloIsaacSimNode(Node):
         self.target_pub = self.create_publisher(Point, '/goal_point', 10)
         self.corr_pub = self.create_publisher(TwistStamped, '/vision_correction', 10)
 
-        # 3) Subscriber (RGB + Depth sync)
+        # 3) Subscriber
+        # 외부에서 타깃 클래스 지정하는 토픽
+        self.STOCK_TARGET_TOPIC = "/stock/target_class"
+        self.create_subscription(String, self.STOCK_TARGET_TOPIC, self.on_target_class, 10)
+        self.get_logger().info(f"   Sub: {self.STOCK_TARGET_TOPIC} (String) -> updates TARGET_CLASS")
+
+
         sub_rgb = message_filters.Subscriber(self, Image, self.RGB_TOPIC)
         sub_depth = message_filters.Subscriber(self, Image, self.DEPTH_TOPIC)
 
@@ -60,6 +67,18 @@ class YoloIsaacSimNode(Node):
         self.get_logger().info(f"   Sub: {self.RGB_TOPIC}, {self.DEPTH_TOPIC}")
         self.get_logger().info(f"   Target class: {self.TARGET_CLASS}")
         self.get_logger().info("   Pub: /vision_correction (TwistStamped), /goal_point (Point)")
+
+
+    def on_target_class(self, msg: String):
+        new_target = (msg.data or "").strip()
+        if not new_target:
+            self.get_logger().warn("[target_class] empty string received; ignoring")
+            return
+
+        if new_target != self.TARGET_CLASS:
+            self.TARGET_CLASS = new_target
+            self.get_logger().info(f"[target_class] TARGET_CLASS updated -> '{self.TARGET_CLASS}'")
+
 
     def callback(self, rgb_msg: Image, depth_msg: Image):
         try:
