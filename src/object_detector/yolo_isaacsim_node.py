@@ -19,7 +19,10 @@ class YoloIsaacSimNode(Node):
 
         # 1) 모델 로드
         self.get_logger().info("⏳ YOLO 모델 로딩 중...")
-        self.model = YOLO("best.pt")
+        import os
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        WEIGHTS = os.path.join(BASE_DIR, "best.pt")
+        self.model = YOLO(WEIGHTS)
         self.bridge = CvBridge()
 
         # ==========================================
