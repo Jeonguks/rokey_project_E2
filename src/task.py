@@ -19,24 +19,42 @@ JOINT_NAMES = [
 ]
 
 
- #rad
+# rad
+OPEN_GRIPPER_ANGLE  = 0.00000
+CLOSE_GRIPPER_ANGLE = 0.43633
 
-OPEN_GRIPPER_ANGLE = 0.0
-CLOSE_GRIPPER_ANGLE = 0.425
-INIT_POSITION = [0.00000, -1.57080, 0.00000, -1.57080, 1.57080, 1.57080, OPEN_GRIPPER_ANGLE]
-
+INIT_POSITION = [0.00000, -1.57080, 0.00000, -1.57080, 1.57080, 3.14159, OPEN_GRIPPER_ANGLE]
 
 SCENARIO = [
-    ("init", INIT_POSITION, 15.0),
-    ("pre_grasp", [-0.18151, -1.88495, -0.65798, -0.58818, 1.72264, 3.14159, OPEN_GRIPPER_ANGLE], 5.0),
-    ("grasp", [-0.18151, -1.88496, -0.65799, -0.58818, 1.72264, 3.14159, CLOSE_GRIPPER_ANGLE], 5.0),
-    ("lift after grasp", [-0.18151, -1.69500, -0.65799, -0.58818, 1.72264, 3.14159, CLOSE_GRIPPER_ANGLE ], 5.0),
-    ("rotate base to place", [3.25000, -1.69500, -0.65799, -0.58818, 1.72264, 3.14159, CLOSE_GRIPPER_ANGLE], 8.0),
-    ("approach place", [3.25000, -1.80000, -0.60000, -0.80000, 1.72264, 3.14159, CLOSE_GRIPPER_ANGLE], 8.0),
-    ("lower to place", [3.25000, -2.08000, -0.60000, -0.76000, 1.72300, 3.14159, CLOSE_GRIPPER_ANGLE], 8.0),
-    ("release", [3.25000, -2.08000, -0.60000, -0.76000, 1.72300, 3.14159, OPEN_GRIPPER_ANGLE], 5.0),
-    ("after release", [3.25000, -2.08000, -0.60000, -0.76000, 1.72300, 3.14159, OPEN_GRIPPER_ANGLE], 8.0),
-    ("init", INIT_POSITION, 5.0)
+    ("init", INIT_POSITION, 5.0),
+
+    ("approach", [0.00000, -1.39626, -0.69813, -1.39626, 1.67551, 3.14159, OPEN_GRIPPER_ANGLE], 5.0),
+
+    ("pre_grasp_1", [0.00000, -1.16064, -1.21999, -0.75398, 1.34041, 3.24631, OPEN_GRIPPER_ANGLE], 5.0),
+    ("pre_grasp_2", [0.00000, -1.27758, -1.21999, -0.75398, 1.34041, 3.24631, OPEN_GRIPPER_ANGLE], 5.0),
+
+    ("grasp", [0.00000, -1.27758, -1.21999, -0.75398, 1.34041, 3.24631, CLOSE_GRIPPER_ANGLE], 5.0),
+
+    # 네가 준 "후퇴"랑 "후퇴2"를 그대로 단계로 분리
+    ("retreat_1", [0.00000, -1.27758, -1.21999, -0.75398, 1.34041, 3.24631, CLOSE_GRIPPER_ANGLE], 5.0),
+    ("retreat_2", [0.00000, -0.92852, -1.21999, -0.75398, 1.34041, 3.24631, CLOSE_GRIPPER_ANGLE], 5.0),
+
+    ("rotate", [-2.90597, -0.92852, -1.21999, -0.75398, 1.34041, 3.24631, CLOSE_GRIPPER_ANGLE], 8.0),
+
+    ("place_approach_1", [-2.90597, -0.75398, -1.71566, -0.75398, 1.34041, 3.24631, CLOSE_GRIPPER_ANGLE], 8.0),
+    ("place_approach_2", [-2.90597, -1.33518, -1.71566, -0.75398, 1.34041, 3.24631, CLOSE_GRIPPER_ANGLE], 8.0),
+    ("place_approach_3", [-2.90597, -1.33518, -1.71566, -0.52185, 1.34041, 3.24631, CLOSE_GRIPPER_ANGLE], 8.0),
+
+    ("place_align_0", [-2.90597, -1.50971, -1.71566, -0.28798, 1.63188, 3.24631, CLOSE_GRIPPER_ANGLE], 8.0),
+    ("place_align",   [-2.90597, -1.50971, -1.71566, -0.28798, 1.68948, 3.24631, CLOSE_GRIPPER_ANGLE], 8.0),
+
+    ("release_open", [-2.90597, -1.50971, -1.71566, -0.28798, 1.68948, 3.24631, OPEN_GRIPPER_ANGLE], 5.0),
+
+    ("retreat_back_1", [-2.90597, -1.50971, -1.71566, -0.28798, 1.63188, 3.24631, OPEN_GRIPPER_ANGLE], 5.0),
+    ("retreat_back_2", [-2.90597, -1.33518, -1.71566, -0.52185, 1.34041, 3.24631, OPEN_GRIPPER_ANGLE], 5.0),
+    ("retreat_back_3", [-2.90597, -1.33518, -1.71566, -0.75398, 1.34041, 3.24631, OPEN_GRIPPER_ANGLE], 5.0),
+
+    ("init", INIT_POSITION, 5.0),
 ]
 
 class JointScenarioRunner(Node):
@@ -143,7 +161,7 @@ class JointScenarioRunner(Node):
         for step_name, target, timeout in SCENARIO:
             self.get_logger().info(f"[STEP] {step_name} | timeout={timeout}s | target={target}")
 
-            if step_name == "pre_grasp":
+            if step_name == "pre_grasp_2":
                 ok, corrected_target = self.task_on_pre_grasp(target, self.PRE_GRASP_TASK_TIMEOUT)
                 if not ok:
                     self.task_goto_init()
