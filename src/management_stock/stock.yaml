@@ -1,0 +1,9 @@
+items:
+  Fanta: 12
+  Coke: 6
+  Coke_Light: 8
+  Pepsi: 3
+  Pepsi_Max: 15
+
+thresholds:
+  default: 5
