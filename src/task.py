@@ -21,7 +21,7 @@ JOINT_NAMES = [
     "finger_joint",
 ]
 
-# ================== ✅ 여기만 네 환경에 맞게 바꿔 ==================
+# ====================================
 ROS_SETUP = "/opt/ros/humble/setup.bash"
 WS_SETUP  = os.path.expanduser("~/ros2_ws/install/setup.bash")  # 없으면 "" 로 두기
 YOLO_SCRIPT = "/home/rokey/Documents/project/rokey_project_E2/src/object_detector/yolo_isaacsim_node.py"
@@ -129,7 +129,7 @@ class JointScenarioRunner(Node):
             else:
                 self.get_logger().warn(f"[YOLO] WS setup not found (skip): {WS_SETUP}")
 
-        # ✅ 핵심: ros_set 대신 source + 절대경로 실행
+        # ros환경설정
         cmd = (
             "bash -lc "
             f"\"source '{ROS_SETUP}' && "
